@@ -347,6 +347,63 @@ Here is an example config which uses SSL based authentication to talk with kafka
   }
 ```
 
+#### Externalize Kafka SSL passwords with FileConfigProvider
+
+Kafka's `FileConfigProvider` can read SSL passwords from a mounted properties file instead of storing the password
+values in the Pinot table config. Upgrade all controllers and servers to a Pinot version that supports Kafka config
+providers before applying this configuration.
+
+Mount the provider file at the same absolute path on every controller and server that uses the table. Restrict the
+provider class at the JVM level on those processes:
+
+```text
+-Dorg.apache.kafka.automatic.config.providers=org.apache.kafka.common.config.provider.FileConfigProvider
+```
+
+The provider file contains the secrets:
+
+```properties
+keystore.password=changeit
+truststore.password=changeit
+```
+
+Use unprefixed Kafka client property names in `streamConfigs`. The additional `$` in `$${file:...}` escapes Pinot's
+environment-variable substitution; Pinot removes it before constructing the Kafka client. The `allowed.paths`
+parameter is required and should contain only the directory or file paths needed by the provider.
+
+```json
+{
+  "streamConfigs": {
+    "streamType": "kafka",
+    "stream.kafka.topic.name": "transcript-topic",
+    "stream.kafka.consumer.factory.class.name": "org.apache.pinot.plugin.stream.kafka30.KafkaConsumerFactory",
+    "stream.kafka.broker.list": "localhost:9092",
+    "security.protocol": "SSL",
+    "ssl.keystore.location": "/vault/secrets/kafka-keystore.p12",
+    "ssl.truststore.location": "/vault/secrets/kafka-truststore.p12",
+    "config.providers": "file",
+    "config.providers.file.class": "org.apache.kafka.common.config.provider.FileConfigProvider",
+    "config.providers.file.param.allowed.paths": "/vault/secrets",
+    "ssl.keystore.password": "$${file:/vault/secrets/kafka-passwords.properties:keystore.password}",
+    "ssl.truststore.password": "$${file:/vault/secrets/kafka-passwords.properties:truststore.password}"
+  }
+}
+```
+
+Recreated Kafka consumers read the current provider-file values. Existing consumers are not hot-reloaded. Pinot's
+shared AdminClient also keeps its existing credentials until all references to that client are released and a new
+client is created.
+
+Do not combine ConfigProvider password references with Pinot's `stream.kafka.ssl.server.certificate` or
+`stream.kafka.ssl.client.certificate` options. Those options generate stores before Kafka resolves provider values;
+use prebuilt mounted keystore and truststore files instead.
+
+{% hint style="warning" %}
+`FileConfigProvider` can read files that are accessible to the Pinot process. Limit who can update table configs,
+restrict the provider class with the JVM property above, and set `config.providers.file.param.allowed.paths` to the
+narrowest possible path.
+{% endhint %}
+
 #### Use Confluent Schema Registry with JSON encoded messages
 
 If your Kafka messages are JSON-encoded and registered with Confluent Schema Registry, use the `KafkaConfluentSchemaRegistryJsonMessageDecoder`. This decoder uses the Confluent `KafkaJsonSchemaDeserializer` to decode messages whose JSON schemas are managed by the registry.
