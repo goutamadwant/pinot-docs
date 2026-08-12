@@ -371,6 +371,11 @@ Use unprefixed Kafka client property names in `streamConfigs`. The additional `$
 environment-variable substitution; Pinot removes it before constructing the Kafka client. The `allowed.paths`
 parameter is required and should contain only the directory or file paths needed by the provider.
 
+The escape applies only when the entire property value has the `$${...}` form; it is not recursive or composable.
+Embedded `${alias:...}` substrings are validated as provider references, and Pinot rejects the table configuration if
+the alias is not declared in `config.providers`. There is no escape form for preserving such an embedded substring as
+literal text.
+
 ```json
 {
   "streamConfigs": {
@@ -393,6 +398,10 @@ parameter is required and should contain only the directory or file paths needed
 Recreated Kafka consumers read the current provider-file values. Existing consumers are not hot-reloaded. Pinot's
 shared AdminClient also keeps its existing credentials until all references to that client are released and a new
 client is created.
+
+Before rolling back to an older Pinot version, replace provider references with configuration that the older version
+understands. Older Pinot versions do not remove the extra `$` and strip the provider settings before constructing the
+Kafka client, so the client receives the unresolved literal value and authentication fails.
 
 Do not combine ConfigProvider password references with Pinot's `stream.kafka.ssl.server.certificate` or
 `stream.kafka.ssl.client.certificate` options. Those options generate stores before Kafka resolves provider values;
